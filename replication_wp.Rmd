@@ -1,0 +1,561 @@
+---
+title: "Replicating Econometric Journal Article Results: “Further Evidence on the Integration of REIT, Bond, and Stock Returns” "
+author: "Sam Veverka"
+date: "25 March 2017"
+output:
+  html_document:
+    fig_height: 4
+    fig_width: 6.5
+    highlight: pygments
+    keep_md: yes
+    number_sections: no
+    theme: cerulean
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introduction
+
+
+This post is an adaption of a class project. I can say with confidence that it will be my longest and driest post. With that said, I did want to include it, as I do see much value in replicating academic work as an exercise. Replication requires one understand a paper and perhaps a topic very thouroughly as the goal is to follow the exact methodology as the authors. Hopefully, the results will be similar as well. So, the exercise of replication is a great way to gain a deeper understanding of a subject. I wanted to gain a deeper understanding of cointegration testing and I have a background knowledge of financial products such as REITs, so I chose to replicate the paper 'Further Evidence on the Integration of REIT, Bond, and Stock Returns' by John L. Glascock, Chiuling Lu, and Raymond W. So. The work uses cointegration and vector error correction models to investigate how integrations between REITs and selected indices change over time
+
+I have only included a portion of my code in this post. In replicating, I ran a lot of the same statistical tests for selected time periods of ten time series. I pared down much of the code because it was repetitive.
+
+# 2. Background
+
+A Real Estate Investment Trust, or REIT, is a financial security that invests solely in real estate, either through property, mortgages on properties, or a combination of the two. REITs are appealing mainly because by securitizing real estate, REITs lower the investment cost and increase the liquidity of real estate. Hence, the REITs make investing in real estate possible for all investors, not just the wealthy. Like stocks and other securities, REITs are traded on major stock exchanges such as the NYSE and the NASDAQ.
+
+There has been substantial research on the relationship between the stock market and the REIT market, dating back to the 1960s. The central research question has been whether REITs, which are bundled real estate income but traded like stocks, perform more like the real estate market or the stock market. This question is important because REITs are commonly marketed as a security that can help diversify a portfolio heavily invested in stocks. If REIT prices behave just like stock prices do they may not be a very good diversification technique. One can determine if REITs perform like stocks by testing for cointegration. Cointegration is essentially a measure of the distance between two variables over time. The classic metaphor is a drunk man walking his dog. We are unsure of where the two are going, but if we know where one is, we likely know pretty well where the other is.
+
+Before the Glascock, Lu, and So paper, much of the literature found mixed answers to the question of whether REITs were cointegrated with stocks or indices such as CPI. Glascock, Lu, and So argue that the prior mixed answers should be expected, as cointegration of REITs depends on what time period the REIT data is from. Specifically, the authors argue that before 1993, the year when REITs increased drastically in market capitalization at least partly due to a 1993 tax reform act which changed the investment structure of REITs to more closely resemble a stock fund than real estate investment. The authors test this hypothesis by testing REIT and stock market cointegration before and after 1992. The authors also test the hypothesis for consistency with other literature by also investigating cointegration between REITs and unsecuritized real estate, bonds, and inflation. The reasoning behind the inclusion of each of these indices, summarized, is that when REITs do not act like stocks, they should act like unsecuritized real estate. REITs must pay out 95% of their income as dividends, so they should resemble bonds, at least before 1992. Also unsecuritized real estate positively correlate with inflation, where REITs have been observed as having a negative relationship with inflation. If the authors’ hypothesis that 1992 was a pivotal year for REITs, there should be cointegration between REITs and inflation before 1992 but not after.
+
+# 3. Data
+
+There are ten series from five different sources used in the Glascock, Lu, and So paper. Monthly data on the REIT Total Return and Share Price Index for all REITs, mortgage REITs, and equity REITs come from the NAREIT’s “REIT Handbook.” The S&P 500 Index data is from the CRSP database. The paper uses the Salomon 10 year Treasury Year Benchmark Indices, a metric for bonds, and the NCREIF Property index: both of which were acquired from a Bloomberg terminals. Finally, the paper uses the seasonally adjusted Consumer Price Index (CPISA) which is produced by the Federal Reserve Bank of St. Louis.
+
+This replication will be using three of the same data sources and will be substituting for the other two. Monthly data on the REIT Total Return and Share Prices Indices has been obtained from the NAREIT website. Monthly S&P 500 Index data and the Consumer Price Index data have been obtained from FRED, the Federal Reserve Economic Data website set up by the Federal Reserve Bank of St. Louis. Salomon no longer exists, so the 1 and 10 year treasury benchmarks generated by FRED will be used. The NCREIF Property index requires a fee to use, so FRED’s Real Residential Property Prices Index will be substituted (QUSR).
+
+```{r, message = FALSE, results = 'hide', eval = FALSE}
+#libraries
+library(urca)
+
+#load data sets
+CPIAUCSL <- read.csv("CPIAUCSL.csv", header = TRUE)
+DGS10 <- read.csv("DGS10.csv", header = TRUE)
+REIT <- read.csv("reit_price_return.csv", header = TRUE, stringsAsFactors = FALSE)
+QUSR <- read.csv("QUSR628BIS.csv", header = TRUE)
+SP500 <- read.csv("S&P500.csv", header = TRUE)
+
+
+
+#convert to time series
+CPIAUCSL_ts <- ts(CPIAUCSL[301:600,2],start=c(1972,1),frequency=12)
+DGS10_ts <- ts(DGS10[1:204,2],start=c(1980,1),frequency=12)
+REIT_price_ts <- ts(REIT[2:301,3],start=c(1972,1),frequency=12)
+REIT_return_ts <- ts(REIT[2:301,2],start=c(1972,1),frequency=12)
+EQT_REIT_ts <- ts(REIT[2:301,4],start=c(1972,1),frequency=12)
+MOR_REIT_ts <- ts(REIT[2:301,5],start=c(1972,1),frequency=12)  
+QUSR_ts <- ts(QUSR[9:85,2],start=c(1977,4),frequency=4)
+SP500_ts <- ts(SP500[1:288,6],start=c(1972,1),frequency=12)
+
+```
+
+# 4. Methodology
+
+Glascock, Lu, and So use the Augmented Dickey-Fuller(ADF) and Phillips-Perron(PP) unit root tests to test for the existence of cointegration. When investigating cointegration, one must first test if the level series have unit root present. One is looking for the level series to be integrated of the same level, 1, and a linear combination of the series to be integrated of level 0, or stationary. So, the unit root test is first applied to all the level series. If unit root is present among two of the variables, then the researcher regresses one variable upon the other and applies the unit root test to the regression. The ADF and PP equations used in the replication are of the standard functional form and are detailed in Glascock, Lu, and So.
+	
+The authors also use error-correction models (ECM) to establish Granger causality between series. Error correction models are standard VAR equations with an extra error correction term which captures a series’ fluctuations and deviations from the error equilibrium. Theoretically, error correction models are appropriate for cointegrated series as they capture both short term and long term effects of each series on the other.
+	
+The only way this replication differs from the original work is in the estimation of error correction models. This replication uses the trace statistic method of testing for cointegration as well as the ADF and PP. This difference will not be displayed in the results but was used in estimating the error correction model. Also, every error correction model in the original paper includes two lagged terms of differenced variables where the replication will only use one. This is because estimations of several of the models were producing unstable coefficient estimates when two lags were included. 
+
+
+# 5. Results Replication
+
+The first results presented in the paper are those of the unit root tests of the REIT indices, S&P 500, 1 and 10-Year treasury, CPI, and unsecuritized real estate index. Table 2 below includes all variables except the 1 year treasury, which was not used further in cointegration tests by the authors. 
+	
+For the most part, the unit root test results corroborate those of Glascock, Lu, and So’s, even with substitute indices. This result is not much of a stretch, as the indices are for financial time series, many of which tend to be non-stationary.  The ADF and PP test statistic is too small to reject the null of non-stationarity for every level series at every time period at any significance. For the first difference of each series the null of non-stationary can be rejected at the 1% level of significance. The only exception is the unsecuritized real estate index, which can only be rejected at the 5% level of significance.
+	
+```{r, message = FALSE, results = 'hide', eval = FALSE}
+#############TABLE 2#############
+#DGS10
+DGS10_ts_adf <- ur.df(log(DGS10_ts), type ="trend", selectlags = "AIC")
+DGS10_ts_pp <- ur.pp(log(DGS10_ts), type="Z-tau", model="trend")
+summary(DGS10_ts_adf)
+summary(DGS10_ts_pp)
+
+#REIT Price
+REIT_price_ts_adf <- ur.df(log(REIT_price_ts), type ="trend", selectlags = "AIC")
+REIT_price_ts_pp <- ur.pp(log(REIT_price_ts), type="Z-tau", model="trend")
+summary(REIT_price_ts_adf)
+summary(REIT_price_ts_pp)
+
+#REIT Return
+REIT_return_ts_adf <- ur.df(log(REIT_return_ts), type ="trend", selectlags = "AIC")
+REIT_return_ts_pp <- ur.pp(log(REIT_return_ts), type="Z-tau", model="trend")
+summary(REIT_return_ts_adf)
+summary(REIT_return_ts_pp)
+
+#QUSR Real Estate Index
+QUSR_ts_adf <- ur.df(log(QUSR_ts), type ="trend", selectlags = "AIC")
+QUSR_ts_pp <- ur.pp(log(QUSR_ts), type="Z-tau", model="trend")
+summary(QUSR_ts_adf)
+summary(QUSR_ts_pp)
+
+#S&P 500 Index
+SP500_ts_adf <- ur.df(log(SP500_ts), type ="trend", selectlags = "AIC")
+SP500_ts_pp <- ur.pp(log(SP500_ts), type="Z-tau", model="trend")
+summary(SP500_ts_adf)
+summary(SP500_ts_pp)
+
+#The augmented dickey fuller and phillips perron tests were run for all series for the different time periods in levels and first differences.
+
+```	
+	
+## 5.1 Cointegration between REITS and the stock market
+
+Glascock, Lu, and So found cointegration for the period after 1992, which would confirm the theory of REITs becoming more like stocks. The cointegration replication test results between REITs and the S&P 500 are included in Panel A of Table 3. Cointegration between REIT total returns or share price and the S&P 500 was not found at any period. However, it should be noted that the test statistics are considerably larger for the period after 1992 compared to the period prior. Panel B shows cointegration between both equity and mortgage REITs and the S&P 500. Mortgage REITs are cointegrated at the 10% level, which concurs with Glascock, Lu, and So. Equity REITs are cointegrated with the S&P 500 for the full period but not for either sub-period. This diverges from the source paper, where solely the second period of equity REITs were found cointegrated. These results tepidly support of the REIT transition hypothesis compared to the original paper’s results.
+	
+## 5.2 Cointegration between REITs and the bond market
+
+The Glascock, Lu, and So results for the bond market indicated the REITs became more like stocks and less like bonds over the two periods. Panel C of Table 3 indicates the same trend, as the cointegration test statistic is significant at the 5% level for the period before 1992 for all REITs and the stock market and mortgage REITs and the stock market.
+	
+```{r, message = FALSE, results = 'hide', eval = FALSE}
+################TABLE 3###############
+###REITS and S&P 500
+
+REIT_price_ts <- ts(REIT[2:301,3],start=c(1972,1),frequency=12)
+REIT_return_ts <- ts(REIT[2:301,2],start=c(1972,1),frequency=12)
+SP500_ts <- ts(SP500[1:300,6],start=c(1972,1),frequency=12)
+EQT_REIT_ts <- ts(REIT[2:301,4],start=c(1972,1),frequency=12)
+MOR_REIT_ts <- ts(REIT[2:301,5],start=c(1972,1),frequency=12)  
+DGS10_ts <- ts(DGS10[1:204,2],start=c(1980,1),frequency=12)
+QUSR_ts <- ts(QUSR[9:84,2],start=c(1977,4),frequency=4)
+
+#Panel A
+REIT_return_7296 <- log(REIT_return_ts)
+REIT_return_7292 <- log(window(REIT_return_ts, 1972,c(1991,12)))
+REIT_return_9296 <- log(window(REIT_return_ts, 1992,c(1996,12)))
+
+REIT_price_7296 <- log(REIT_price_ts)
+REIT_price_7292 <- log(window(REIT_price_ts, 1972,c(1991,12)))
+REIT_price_9296 <- log(window(REIT_price_ts, 1992,c(1996,12)))
+
+SP500_7296 <- log(SP500_ts)
+SP500_7292 <- log(window(SP500_ts, 1972,c(1991,12)))
+SP500_9296 <- log(window(SP500_ts, 1992,c(1996,12)))
+
+
+
+trend <- seq_along(REIT_return_7292)
+# test for cointegration with estimated cointegrating vector
+coint.eq <- lm(REIT_return_7292~ SP500_7292+ trend )
+coint.eq <- lm(SP500_7296~REIT_return_7296 + trend )
+summary(coint.eq)
+ut.est <- coint.eq$resid
+
+# test for unit root in cointegrating residual 
+ut.ur=ur.df(ut.est, type ="none", selectlags = "AIC")
+summary(ut.ur)
+
+
+
+#Panel B
+EQT_REIT_7296 <- log(EQT_REIT_ts)
+EQT_REIT_7292 <- log(window(EQT_REIT_ts, 1972,c(1991,12)))
+EQT_REIT_9296 <- log(window(EQT_REIT_ts, 1992,c(1996,12)))
+
+MOR_REIT_7296 <- log(MOR_REIT_ts)
+MOR_REIT_7292 <- log(window(MOR_REIT_ts, 1972,c(1991,12)))
+MOR_REIT_9296 <- log(window(MOR_REIT_ts, 1992,c(1996,12)))
+
+
+trend <- seq_along(MOR_REIT_7292)
+# test for cointegration with estimated cointegrating vector
+coint.eq <- lm(MOR_REIT_7292~ SP500_7292+ trend )
+summary(coint.eq)
+ut.est <- coint.eq$resid
+
+# test for unit root in cointegrating residual 
+ut.ur=ur.df(ut.est, type ="none", selectlags = "AIC")
+summary(ut.ur)
+
+#Panel C
+REIT_return_8096 <- log(window(REIT_return_ts, 1980,c(1996,12)))
+REIT_return_8092 <- log(window(REIT_return_ts, 1980,c(1991,12)))
+REIT_return_9296 <- log(window(REIT_return_ts, 1992,c(1996,12)))
+
+EQT_REIT_8096 <- log(window(EQT_REIT_ts, 1980,c(1996,12)))
+EQT_REIT_8092 <- log(window(EQT_REIT_ts, 1980,c(1991,12)))
+EQT_REIT_9296 <- log(window(EQT_REIT_ts, 1992,c(1996,12)))
+
+MOR_REIT_8096 <- log(window(MOR_REIT_ts, 1980,c(1996,12)))
+MOR_REIT_8092 <- log(window(MOR_REIT_ts, 1980,c(1991,12)))
+MOR_REIT_9296 <- log(window(MOR_REIT_ts, 1992,c(1996,12)))
+
+DGS10_8096 <- log(DGS10_ts)
+DGS10_8092 <- log(window(DGS10_ts, 1980,c(1991,12)))
+DGS10_9296 <- log(window(DGS10_ts, 1992,c(1996,12)))
+
+
+trend <- seq_along(MOR_REIT_8096)
+# test for cointegration with estimated cointegrating vector
+coint.eq <- lm(MOR_REIT_8096 ~ DGS10_8096+ trend )
+summary(coint.eq)
+ut.est <- coint.eq$resid
+
+# test for unit root in cointegrating residual 
+ut.ur=ur.df(ut.est, type ="none", selectlags = "AIC")
+summary(ut.ur)
+
+```
+	
+
+## 5.3 Cointegration between REITs and unsecuritized real estate
+
+The original paper posits that since REITs’ assets and income must be 75% real estate, underlying factors which would affect unsecuritized real estate would also affect securitized real estate and hence there is a cointegration relationship between REITs and unsecuritized real estate indices. The relationship is logically straightforward and there is evidence of cointegration between all categories of REIT and the QUSR real estate index in the original and replication results. The replication results are displayed in Panel A of Table 4. Also, as noted in the original paper, only the full period cointegration is tested as the real estate index is quarterly, limiting the number of observations.
+
+Two error correction models for each category of REIT were calculated. Each ECM is the VAR model between the REIT index and the real estate index with the addition of an error-correction term, the prior period’s equilibrium error. So for the first equation there is the REIT is on the left side as the dependent and a constant, a lagged REIT term, a lagged real estate term, and error correction term on the right. The second equation has the real estate index term on the left with the same variables on the right side. The main thing to look for in error correction model results is the sign and significance of the error term. A significant and negative error coefficient indicates that the cointegrated variables move towards the equilibrium error in the long run.
+
+Glascock, Lu, and So found the sign negative for every error coefficient, except for equation 4, with equations 3 and 6 negative and significant. This replication finds every REIT equation with negative, significant error coefficients. The QUSR equations actually have positive error coefficients, but they are insignificant. The replication results are stronger than the original’s, implying that REITs move towards a long-term cointegration equilibrium with the real estate index. The replication results actually make more logical sense than the originals, implying that when the long-term cointegrating relationship changes between the real estate index and REITs, REITs, which are financial assets, are the series to adjust. Like in the original work, there is not much indication of short term Granger causation.
+
+```{r, message = FALSE, results = 'hide', eval = FALSE}
+###########Table 4################ 
+#Error Correction Models
+REIT_return_7796 <- log(window(REIT_return_ts, c(1977,10),c(1996,9)))
+EQT_REIT_7796 <- log(window(EQT_REIT_ts,  c(1977,10),c(1996,9)))
+MOR_REIT_7796 <- log(window(MOR_REIT_ts,  c(1977,10),c(1996,9)))
+QUSR_7796 <- log(QUSR_ts)
+
+qtr_REIT_return_7796 <- aggregate(REIT_return_7796, nfrequency=4,mean)
+qtr_EQT_REIT_7796 <- aggregate(EQT_REIT_7796, nfrequency=4,mean)
+qtr_MOR_REIT_7796 <- aggregate(MOR_REIT_7796, nfrequency=4,mean)
+
+length(QUSR_7796)
+
+
+# test for cointegration with estimated cointegrating vector
+trend12 <- seq_along(qtr_REIT_return_7796)
+
+coint.eq12 <- lm(qtr_REIT_return_7796 ~ QUSR_7796 + trend12 )
+summary(coint.eq12)
+ut.est12 <- coint.eq12$resid
+
+# test for unit root in cointegrating residual 
+ut.ur12=ur.df(ut.est12, type ="none", selectlags = "AIC")
+summary(ut.ur12)
+
+
+# test for cointegration with estimated cointegrating vector
+trend34 <- seq_along(qtr_EQT_REIT_7796)
+
+coint.eq34 <- lm(qtr_EQT_REIT_7796 ~ QUSR_7796 + trend34 )
+summary(coint.eq34)
+ut.est34 <- coint.eq34$resid
+
+# test for unit root in cointegrating residual 
+ut.ur34=ur.df(ut.est34, type ="none", selectlags = "AIC")
+summary(ut.ur34)
+
+
+# test for cointegration with estimated cointegrating vector
+trend56 <- seq_along(qtr_MOR_REIT_7796)
+
+coint.eq56 <- lm(qtr_MOR_REIT_7796 ~ QUSR_7796 + trend56 )
+summary(coint.eq56)
+ut.est56 <- coint.eq56$resid
+
+# test for unit root in cointegrating residual 
+ut.ur56=ur.df(ut.est56, type ="none", selectlags = "AIC")
+summary(ut.ur56)
+
+
+###VECM All REIT QUSR
+#library(dynlm)
+vardata1 <- ts(cbind(qtr_REIT_return_7796,QUSR_7796),start=c(1977,4),frequency=4)
+info.crit <- VARselect(vardata1,lag.max=4,type="const")
+info.crit
+
+
+#ECM models 1&2
+data12 <- cbind(qtr_REIT_return_7796,QUSR_7796)
+test12 <- ca.jo(data12,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test12)
+model12 <- cajorls(test12,r=1) 
+summary(model12$rlm) 
+
+#ECM models 3&4
+data34 <- cbind(qtr_EQT_REIT_7796 ,QUSR_7796)
+test34 <- ca.jo(data34,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test34)
+model34 <- cajorls(test34,r=1) 
+summary(model34$rlm) 
+
+#ECM models 5&6
+data56 <- cbind(qtr_MOR_REIT_7796 ,QUSR_7796)
+test56 <- ca.jo(data56,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test56)
+model56 <- cajorls(test56,r=1) 
+summary(model56$rlm) 
+
+
+```
+
+## 5.4 Cointegration between REITs and inflation
+
+As aforementioned, the authors expected to find a cointegrating relationship between REITs and inflation, measured by CPI, prior to 1992 but not after. Glascock, Lu, and So found that inflation and REITs were cointegrated for the whole period and prior to 1992 all and mortgage REITs, but not for equity REITs, which had cointegration at the 5% level of significance. This replication find similar but not as strong of results, displayed in Panel A of Table 5. Cointegration is found in every test except the one for mortgage REITs after 1992. The replication results indicate that the theory of REITs being more tied to inflation like real estate prior to 1992 is valid, but are not very convincing.
+
+The ECM results are displayed in Table 5 Panel B. The original paper found for the first and full period that REITs would adjust to the equilibrium error and that inflation would lead REITs, but not vice versa. The replication results are similar for the first period and the full period. All error correction terms are negative and significant in the REIT equations. Five out of six of the lagged CPI terms are significant in the REIT equations (1, 3, & 5). For five out of six of the CPI equations, the first and second period equations have negative and significant error correction term coefficients. These results concur with the original papers results, implying a cointegrating result where inflation leads REIT returns for the first period and the full period. The original paper does not include the error correction terms for the second period, as no cointegration was found. The replication results implied cointegration, so error correction terms were included, but do not appear to be insightful as every error correction coefficient for the REIT equations is negative and significant and every error correction coefficient for the CPI equations is positive and significant. These results are likely due to weak cointegration, as the trace statistic for models 5 &6 produced a value right on the cusp of indicating one cointegrating vector. 
+
+```{r, message = FALSE, results = 'hide', eval = FALSE}
+#############Table 5#############
+#Error Correction Models - REITS and CPI
+CPIAUCSL_ts <- ts(CPIAUCSL[301:600,2],start=c(1972,1),frequency=12)
+
+
+REIT_return_7296 <- log(REIT_return_ts)
+REIT_return_7292 <- log(window(REIT_return_ts, 1972,c(1991,12)))
+REIT_return_9296 <- log(window(REIT_return_ts, 1992,c(1996,12)))
+
+EQT_REIT_7296 <- log(EQT_REIT_ts)
+EQT_REIT_7292 <- log(window(EQT_REIT_ts, 1972,c(1991,12)))
+EQT_REIT_9296 <- log(window(EQT_REIT_ts, 1992,c(1996,12)))
+
+MOR_REIT_7296 <- log(MOR_REIT_ts)
+MOR_REIT_7292 <- log(window(MOR_REIT_ts, 1972,c(1991,12)))
+MOR_REIT_9296 <- log(window(MOR_REIT_ts, 1992,c(1996,12)))
+
+CPIAUCSL_7296 <- log(CPIAUCSL_ts)
+CPIAUCSL_7292 <- log(window(CPIAUCSL_ts, 1972,c(1991,12)))
+CPIAUCSL_9296 <- log(window(CPIAUCSL_ts, 1992,c(1996,12)))
+
+
+# test for cointegration with estimated cointegrating vector
+trend12 <- seq_along(REIT_return_9296)
+
+coint.eq12 <- lm(REIT_return_9296 ~ CPIAUCSL_9296 + trend12 )
+summary(coint.eq12)
+ut.est12 <- coint.eq12$resid
+
+# test for unit root in cointegrating residual 
+ut.ur12=ur.df(ut.est12, type ="none", selectlags = "AIC")
+summary(ut.ur12)
+
+
+# test for cointegration with estimated cointegrating vector
+trend34 <- seq_along(EQT_REIT_9296)
+
+coint.eq34 <- lm(EQT_REIT_9296 ~ CPIAUCSL_9296 + trend34 )
+summary(coint.eq34)
+ut.est34 <- coint.eq34$resid
+
+# test for unit root in cointegrating residual 
+ut.ur34=ur.df(ut.est34, type ="none", selectlags = "AIC")
+summary(ut.ur34)
+
+
+# test for cointegration with estimated cointegrating vector
+trend56 <- seq_along(MOR_REIT_9296)
+
+coint.eq56 <- lm(MOR_REIT_9296 ~ CPIAUCSL_9296 + trend56 )
+summary(coint.eq56)
+ut.est56 <- coint.eq56$resid
+
+# test for unit root in cointegrating residual 
+ut.ur56=ur.df(ut.est56, type ="none", selectlags = "AIC")
+summary(ut.ur56)
+
+
+
+##Full Period 1/72-12/96
+#ECM models 1&2
+data12 <- cbind(REIT_return_7296,CPIAUCSL_7296)
+test12 <- ca.jo(data12,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test12)
+model12 <- cajorls(test12,r=1) 
+summary(model12$rlm) 
+
+#ECM models 3&4
+data34 <- cbind(EQT_REIT_7296 ,CPIAUCSL_7296)
+test34 <- ca.jo(data34,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test34)
+model34 <- cajorls(test34,r=1) 
+summary(model34$rlm) 
+
+#ECM models 5&6
+data56 <- cbind(MOR_REIT_7296 ,CPIAUCSL_7296)
+test56 <- ca.jo(data56,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test56)
+model56 <- cajorls(test56,r=1) 
+summary(model56$rlm) 
+
+
+
+##First Period 1/72-12/92
+#ECM models 1&2
+data12 <- cbind(REIT_return_7292,CPIAUCSL_7292)
+test12 <- ca.jo(data12,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test12)
+model12 <- cajorls(test12,r=1) 
+summary(model12$rlm) 
+
+#ECM models 3&4
+data34 <- cbind(EQT_REIT_7292 ,CPIAUCSL_7292)
+test34 <- ca.jo(data34,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test34)
+model34 <- cajorls(test34,r=1) 
+summary(model34$rlm) 
+
+#ECM models 5&6
+data56 <- cbind(MOR_REIT_7292 ,CPIAUCSL_7292)
+test56 <- ca.jo(data56,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test56)
+model56 <- cajorls(test56,r=1) 
+summary(model56$rlm) 
+
+##Second Period 1/92-12/96
+#ECM models 1&2
+data12 <- cbind(REIT_return_9296,CPIAUCSL_9296)
+test12 <- ca.jo(data12,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test12)
+model12 <- cajorls(test12,r=1) 
+summary(model12$rlm) 
+
+#ECM models 3&4
+data34 <- cbind(EQT_REIT_9296 ,CPIAUCSL_9296)
+test34 <- ca.jo(data34,ecdet="trend",type="trace",K=4,spec="transitory")
+summary(test34)
+model34 <- cajorls(test34,r=1) 
+summary(model34$rlm) 
+
+#ECM models 5&6
+data56 <- cbind(MOR_REIT_9296 ,CPIAUCSL_9296)
+test56 <- ca.jo(data56,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test56)
+model56 <- cajorls(test56,r=1) 
+summary(model56$rlm) 
+
+```
+
+## 5.5 Cointegration between equity and mortgage REITs
+
+The last section of the original paper tests for cointegration between equity REITs and mortgage REITs. Each category must invest 75 percent in its namesake. One would expect that factors affecting the real estate market would also affect the subcategories of REITs in a similar way. However, mortgages are different from owning property (equity), so it is not a forgone conclusion that the two are cointegrated over every period. Glascock, Lu, and So found that the total return index and share price index between the two types of REIT were cointegrated over the full period  and the first period but not the second period. This replication finds the same results, almost exactly. Glascock, Lu, and So argue that this result is due to the changing legislation around REITs which caused REITs to be overpriced in the 1970s and 1980 and later caused greater variation in pricing and generally underpricing in the 1990s.
+
+The original paper’s error correction terms were non-significant for five out of the six models, but they did identify a positive feedback loop between the two REIT types. The replication results showed five out of the six error correction terms as negative and significant, implying the a strong cointegration presence. As opposed to finding a feedback loop, the replication results indicate that the equity REIT index leads the Mortgage REIT index, at least in the full and first period. The replication results contradict the original paper’s theory that mortgage REITs are more sensitive to interest-rate movements, as they are constituted by mortgages, and hence lead equity REITs.
+
+```{r, message = FALSE, results = 'hide', eval = FALSE}
+#############Table 6##############
+#Cointegration Tests - Equity REIT Index with Mortgage REIT Index
+EQT_REIT_price_ts <- ts(REIT[2:301,6],start=c(1972,1),frequency=12)
+MOR_REIT_price_ts <- ts(REIT[2:301,7],start=c(1972,1),frequency=12)  
+
+
+EQT_REIT_7296 <- log(EQT_REIT_ts)
+EQT_REIT_7292 <- log(window(EQT_REIT_ts, 1972,c(1991,12)))
+EQT_REIT_9296 <- log(window(EQT_REIT_ts, 1992,c(1996,12)))
+
+
+MOR_REIT_7296 <- log(MOR_REIT_ts)
+MOR_REIT_7292 <- log(window(MOR_REIT_ts, 1972,c(1991,12)))
+MOR_REIT_9296 <- log(window(MOR_REIT_ts, 1992,c(1996,12)))
+
+EQT_REIT_price_7296 <- log(EQT_REIT_price_ts)
+EQT_REIT_price_7292 <- log(window(EQT_REIT_price_ts, 1972,c(1991,12)))
+EQT_REIT_price_9296 <- log(window(EQT_REIT_price_ts, 1992,c(1996,12)))
+
+
+MOR_REIT_price_7296 <- log(MOR_REIT_price_ts)
+MOR_REIT_price_7292 <- log(window(MOR_REIT_price_ts, 1972,c(1991,12)))
+MOR_REIT_price_9296 <- log(window(MOR_REIT_price_ts, 1992,c(1996,12)))
+
+
+
+# test for cointegration with estimated cointegrating vector
+trend12 <- seq_along(EQT_REIT_price_7296)
+
+coint.eq12 <- lm(EQT_REIT_price_7296 ~ MOR_REIT_price_7296 + trend12 )
+summary(coint.eq12)
+ut.est12 <- coint.eq12$resid
+
+# test for unit root in cointegrating residual 
+ut.ur12=ur.df(ut.est12, type ="none", selectlags = "AIC")
+summary(ut.ur12)
+
+
+# test for cointegration with estimated cointegrating vector
+trend34 <- seq_along(EQT_REIT_price_7292)
+
+coint.eq34 <- lm(EQT_REIT_price_7292 ~ MOR_REIT_price_7292 + trend34 )
+summary(coint.eq34)
+ut.est34 <- coint.eq34$resid
+
+# test for unit root in cointegrating residual 
+ut.ur34=ur.df(ut.est34, type ="none", selectlags = "AIC")
+summary(ut.ur34)
+
+
+# test for cointegration with estimated cointegrating vector
+trend56 <- seq_along(EQT_REIT_price_9296)
+
+coint.eq56 <- lm(EQT_REIT_price_9296 ~ MOR_REIT_price_9296 + trend56 )
+summary(coint.eq56)
+ut.est56 <- coint.eq56$resid
+
+# test for unit root in cointegrating residual 
+ut.ur56=ur.df(ut.est56, type ="none", selectlags = "AIC")
+summary(ut.ur56)
+
+
+
+##Full Period 1/72-12/96
+#ECM models 1&2
+data12 <- cbind(EQT_REIT_7296,MOR_REIT_7296)
+test12 <- ca.jo(data12,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test12)
+model12 <- cajorls(test12,r=1) 
+summary(model12$rlm) 
+
+
+data12 <- cbind(EQT_REIT_price_7296,EQT_REIT_price_7296)
+test12 <- ca.jo(data12,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test12)
+model12 <- cajorls(test12,r=1) 
+summary(model12$rlm) 
+
+
+
+#ECM models 3&4
+data34 <- cbind(EQT_REIT_7292 ,MOR_REIT_7292)
+test34 <- ca.jo(data34,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test34)
+model34 <- cajorls(test34,r=1) 
+summary(model34$rlm) 
+
+data34 <- cbind(EQT_REIT_price_7292 ,MOR_REIT_price_7292)
+test34 <- ca.jo(data34,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test34)
+model34 <- cajorls(test34,r=1) 
+summary(model34$rlm) 
+
+#ECM models 5&6
+data56 <- cbind(EQT_REIT_9296 ,MOR_REIT_9296)
+test56 <- ca.jo(data56,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test56)
+model56 <- cajorls(test56,r=1) 
+summary(model56$rlm) 
+
+data56 <- cbind(EQT_REIT_price_9296 ,MOR_REIT_price_9296)
+test56 <- ca.jo(data56,ecdet="trend",type="trace",K=2,spec="transitory")
+summary(test56)
+model56 <- cajorls(test56,r=1) 
+summary(model56$rlm) 
+```
+
+# 6. Conclusions
+
+The results of the replication appear to concur with the original paper on most counts. It appears that 1992 was a crucial year for REITs, as the cointegration results pivot around it. From the replication results, it also does appear that REITs did behave more like fixed-income instruments prior to 1992 and stock like post 1992, but the results are not completely conclusive. Perhaps most interesting is the diversion of Mortgage and Equity REITs after 1992, which could be the result of deeper or more changes in REITs structure than just REITs becoming more stock-like and less bond-like over the period.
+
